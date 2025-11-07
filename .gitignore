@@ -53,6 +53,9 @@ coverage.xml
 data/
 rooms.json
 rooms_backup_*.json
+*.db
+*.db-shm
+*.db-wal
 .pytest_cache/
 cover/
 

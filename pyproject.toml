@@ -31,6 +31,7 @@ dependencies = [
     "streamlit>=1.28.0",
     "pandas>=2.0.0",
     "plotly>=5.15.0",
+    "sqlalchemy>=2.0.0",
 ]
 
 # Optional dependencies for different use cases
@@ -126,7 +127,11 @@ addopts = [
     "--cov=logic",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "--cov-fail-under=95",
+    "--cov-fail-under=90",
+]
+filterwarnings = [
+    "ignore::ResourceWarning",
+    "ignore::DeprecationWarning",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

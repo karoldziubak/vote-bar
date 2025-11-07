@@ -2,6 +2,7 @@
 Room management for multi-user voting sessions.
 
 Handles room creation, joining, and shared state management.
+Uses SQLite database for persistence.
 """
 
 import random
@@ -10,23 +11,28 @@ from datetime import datetime
 from typing import Dict, Optional, List
 from dataclasses import dataclass, field
 
+from .database import get_database
+
 
 @dataclass
 class RoomState:
-    """Represents the state of a voting room."""
+    """Represents the state of a voting room (in-memory representation)."""
     
     room_id: str
     available_options: List[str] = field(default_factory=list)
     participant_votes: Dict[str, Dict[str, float]] = field(default_factory=dict)  # participant_id -> {option: position}
     created_at: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
-    participant_count: int = 0
+    
+    @property
+    def participant_count(self) -> int:
+        """Get the number of participants who have voted."""
+        return len(self.participant_votes)
     
     def submit_vote(self, participant_id: str, positions: Dict[str, float]) -> None:
         """Submit a vote from a participant."""
         self.participant_votes[participant_id] = positions.copy()
         self.last_updated = datetime.now()
-        self.participant_count = len(self.participant_votes)
     
     def get_aggregated_results(self) -> Dict[str, float]:
         """
@@ -60,39 +66,27 @@ class RoomState:
 
 
 class RoomManager:
-    """Manages voting rooms with in-memory storage and optional persistence."""
+    """Manages voting rooms using SQLite database for persistence."""
     
-    def __init__(self, enable_persistence: bool = True):
+    def __init__(self, db_path: str = "data/vote_bar.db"):
         """
-        Initialize the room manager.
+        Initialize the room manager with database backend.
         
         Args:
-            enable_persistence: Whether to enable file-based persistence
+            db_path: Path to SQLite database file
         """
-        self._rooms: Dict[str, RoomState] = {}
-        self.enable_persistence = enable_persistence
-        self._persistence = None
+        self.db = get_database(db_path)
         
-        if self.enable_persistence:
-            from .persistence import RoomPersistence
-            self._persistence = RoomPersistence()
-            # Load existing rooms from disk
-            self._rooms = self._persistence.load_rooms()
-            # Automatically clean up old rooms on startup
-            cleaned = self.cleanup_old_rooms(max_age_hours=24)
-            if cleaned > 0:
-                print(f"Cleaned up {cleaned} expired room(s) on startup")
-    
-    def _save_to_disk(self) -> None:
-        """Save current room state to disk if persistence is enabled."""
-        if self.enable_persistence and self._persistence:
-            self._persistence.save_rooms(self._rooms)
+        # Automatically clean up old rooms on startup
+        cleaned = self.cleanup_old_rooms(max_age_hours=24)
+        if cleaned > 0:
+            print(f"Cleaned up {cleaned} expired room(s) on startup")
     
     def generate_room_code(self, length: int = 6) -> str:
         """Generate a unique room code."""
         while True:
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
-            if code not in self._rooms:
+            if not self.db.room_exists(code):
                 return code
     
     def create_room(self, initial_options: Optional[List[str]] = None) -> str:
@@ -110,13 +104,7 @@ class RoomManager:
         if initial_options is None:
             initial_options = ['Option A', 'Option B', 'Option C', 'Option D']
         
-        self._rooms[room_code] = RoomState(
-            room_id=room_code,
-            available_options=initial_options,
-            participant_count=1
-        )
-        
-        self._save_to_disk()
+        self.db.create_room(room_code, initial_options)
         return room_code
     
     def join_room(self, room_code: str) -> Optional[RoomState]:
@@ -130,10 +118,16 @@ class RoomManager:
             The room state if room exists, None otherwise
         """
         room_code = room_code.upper().strip()
+        room_data = self.db.get_room(room_code)
         
-        if room_code in self._rooms:
-            self._rooms[room_code].participant_count += 1
-            return self._rooms[room_code]
+        if room_data:
+            return RoomState(
+                room_id=room_data['room_code'],
+                available_options=room_data['available_options'],
+                participant_votes=room_data['participant_votes'],
+                created_at=room_data['created_at'],
+                last_updated=room_data['last_updated']
+            )
         
         return None
     
@@ -147,7 +141,19 @@ class RoomManager:
         Returns:
             The room state if room exists, None otherwise
         """
-        return self._rooms.get(room_code.upper().strip())
+        room_code = room_code.upper().strip()
+        room_data = self.db.get_room(room_code)
+        
+        if room_data:
+            return RoomState(
+                room_id=room_data['room_code'],
+                available_options=room_data['available_options'],
+                participant_votes=room_data['participant_votes'],
+                created_at=room_data['created_at'],
+                last_updated=room_data['last_updated']
+            )
+        
+        return None
     
     def update_room_options(self, room_code: str, options: List[str]) -> bool:
         """
@@ -160,12 +166,8 @@ class RoomManager:
         Returns:
             True if successful, False if room doesn't exist
         """
-        room = self.get_room(room_code)
-        if room:
-            room.update_options(options)
-            self._save_to_disk()
-            return True
-        return False
+        room_code = room_code.upper().strip()
+        return self.db.update_room_options(room_code, options)
     
     def update_room_positions(self, room_code: str, participant_id: str, positions: Dict[str, float]) -> bool:
         """
@@ -179,20 +181,17 @@ class RoomManager:
         Returns:
             True if successful, False if room doesn't exist
         """
-        room = self.get_room(room_code)
-        if room:
-            room.submit_vote(participant_id, positions)
-            self._save_to_disk()
-            return True
-        return False
+        room_code = room_code.upper().strip()
+        return self.db.submit_vote(room_code, participant_id, positions)
     
     def room_exists(self, room_code: str) -> bool:
         """Check if a room exists."""
-        return room_code.upper().strip() in self._rooms
+        return self.db.room_exists(room_code.upper().strip())
     
     def get_room_count(self) -> int:
         """Get the total number of active rooms."""
-        return len(self._rooms)
+        all_rooms = self.db.get_all_rooms()
+        return len(all_rooms)
     
     def cleanup_old_rooms(self, max_age_hours: int = 24) -> int:
         """
@@ -204,23 +203,7 @@ class RoomManager:
         Returns:
             Number of rooms cleaned up
         """
-        from datetime import timedelta
-        
-        now = datetime.now()
-        rooms_to_remove = []
-        
-        for room_code, room in self._rooms.items():
-            age = now - room.last_updated
-            if age > timedelta(hours=max_age_hours):
-                rooms_to_remove.append(room_code)
-        
-        for room_code in rooms_to_remove:
-            del self._rooms[room_code]
-        
-        if rooms_to_remove:
-            self._save_to_disk()
-        
-        return len(rooms_to_remove)
+        return self.db.cleanup_old_rooms(hours=max_age_hours)
 
 
 # Global singleton instance
