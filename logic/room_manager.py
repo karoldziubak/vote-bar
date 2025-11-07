@@ -17,15 +17,41 @@ class RoomState:
     
     room_id: str
     available_options: List[str] = field(default_factory=list)
-    selected_positions: Dict[str, float] = field(default_factory=dict)
+    participant_votes: Dict[str, Dict[str, float]] = field(default_factory=dict)  # participant_id -> {option: position}
     created_at: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
     participant_count: int = 0
     
-    def update_positions(self, positions: Dict[str, float]) -> None:
-        """Update the positions for selected options."""
-        self.selected_positions = positions.copy()
+    def submit_vote(self, participant_id: str, positions: Dict[str, float]) -> None:
+        """Submit a vote from a participant."""
+        self.participant_votes[participant_id] = positions.copy()
         self.last_updated = datetime.now()
+        self.participant_count = len(self.participant_votes)
+    
+    def get_aggregated_results(self) -> Dict[str, float]:
+        """
+        Aggregate all participant votes to calculate total points for each option.
+        Each participant's vote is weighted equally.
+        Returns dict of {option: total_points}
+        """
+        if not self.participant_votes:
+            return {}
+        
+        # Count votes for each option
+        option_points: Dict[str, float] = {}
+        
+        for participant_id, positions in self.participant_votes.items():
+            # Calculate vote shares for this participant using Voronoi logic
+            from logic.vote_logic import VoteResult
+            vote_result = VoteResult(positions)
+            
+            # Add this participant's share to the total
+            for option, share in vote_result.shares.items():
+                if option not in option_points:
+                    option_points[option] = 0.0
+                option_points[option] += share
+        
+        return option_points
     
     def update_options(self, options: List[str]) -> None:
         """Update the list of available options."""
@@ -34,11 +60,33 @@ class RoomState:
 
 
 class RoomManager:
-    """Manages voting rooms with in-memory storage."""
+    """Manages voting rooms with in-memory storage and optional persistence."""
     
-    def __init__(self):
-        """Initialize the room manager."""
+    def __init__(self, enable_persistence: bool = True):
+        """
+        Initialize the room manager.
+        
+        Args:
+            enable_persistence: Whether to enable file-based persistence
+        """
         self._rooms: Dict[str, RoomState] = {}
+        self.enable_persistence = enable_persistence
+        self._persistence = None
+        
+        if self.enable_persistence:
+            from .persistence import RoomPersistence
+            self._persistence = RoomPersistence()
+            # Load existing rooms from disk
+            self._rooms = self._persistence.load_rooms()
+            # Automatically clean up old rooms on startup
+            cleaned = self.cleanup_old_rooms(max_age_hours=24)
+            if cleaned > 0:
+                print(f"Cleaned up {cleaned} expired room(s) on startup")
+    
+    def _save_to_disk(self) -> None:
+        """Save current room state to disk if persistence is enabled."""
+        if self.enable_persistence and self._persistence:
+            self._persistence.save_rooms(self._rooms)
     
     def generate_room_code(self, length: int = 6) -> str:
         """Generate a unique room code."""
@@ -68,6 +116,7 @@ class RoomManager:
             participant_count=1
         )
         
+        self._save_to_disk()
         return room_code
     
     def join_room(self, room_code: str) -> Optional[RoomState]:
@@ -114,15 +163,17 @@ class RoomManager:
         room = self.get_room(room_code)
         if room:
             room.update_options(options)
+            self._save_to_disk()
             return True
         return False
     
-    def update_room_positions(self, room_code: str, positions: Dict[str, float]) -> bool:
+    def update_room_positions(self, room_code: str, participant_id: str, positions: Dict[str, float]) -> bool:
         """
-        Update the positions in a room.
+        Submit a vote from a participant to a room.
         
         Args:
             room_code: The room code
+            participant_id: Unique identifier for the participant
             positions: Dictionary of option names to positions
             
         Returns:
@@ -130,7 +181,8 @@ class RoomManager:
         """
         room = self.get_room(room_code)
         if room:
-            room.update_positions(positions)
+            room.submit_vote(participant_id, positions)
+            self._save_to_disk()
             return True
         return False
     
@@ -164,6 +216,9 @@ class RoomManager:
         
         for room_code in rooms_to_remove:
             del self._rooms[room_code]
+        
+        if rooms_to_remove:
+            self._save_to_disk()
         
         return len(rooms_to_remove)
 

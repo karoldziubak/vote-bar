@@ -48,6 +48,11 @@ coverage.xml
 *.cover
 *.py.cover
 .hypothesis/
+
+# Room persistence data
+data/
+rooms.json
+rooms_backup_*.json
 .pytest_cache/
 cover/
 
