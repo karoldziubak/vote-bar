@@ -126,7 +126,7 @@ addopts = [
     "--cov=logic",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "--cov-fail-under=80",
+    "--cov-fail-under=95",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

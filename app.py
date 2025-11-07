@@ -9,6 +9,7 @@ Each option's share is determined by 1D Voronoi diagram logic
 import streamlit as st
 import plotly.graph_objects as go
 from logic.vote_logic import VoteResult
+from logic.room_manager import get_room_manager
 
 
 def create_results_bar_chart(vote_result: VoteResult) -> go.Figure:
@@ -88,9 +89,85 @@ def main():
     based on **midpoints** between adjacent positions (1D Voronoi diagram).
     """)
     
+    # Get room manager
+    room_manager = get_room_manager()
+    
     # Initialize session state
+    if 'room_code' not in st.session_state:
+        st.session_state.room_code = None
     if 'available_options' not in st.session_state:
         st.session_state.available_options = ['Option A', 'Option B', 'Option C', 'Option D']
+    
+    # Sidebar - Room Management
+    st.sidebar.header("🏠 Room Management")
+    
+    if st.session_state.room_code is None:
+        # Not in a room - show create/join options
+        st.sidebar.info("👤 Solo Mode - Create or join a room to collaborate!")
+        
+        col1, col2 = st.sidebar.columns(2)
+        
+        with col1:
+            if st.button("🆕 Create Room", use_container_width=True):
+                room_code = room_manager.create_room(st.session_state.available_options)
+                st.session_state.room_code = room_code
+                st.rerun()
+        
+        with col2:
+            if st.button("🚪 Join Room", use_container_width=True):
+                st.session_state.show_join_form = True
+                st.rerun()
+        
+        # Show join form if requested
+        if st.session_state.get('show_join_form', False):
+            with st.sidebar.form("join_room_form"):
+                join_code = st.text_input("Enter Room Code:", max_chars=8).upper()
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.form_submit_button("Join", use_container_width=True):
+                        room = room_manager.join_room(join_code)
+                        if room:
+                            st.session_state.room_code = join_code
+                            st.session_state.available_options = room.available_options.copy()
+                            st.session_state.show_join_form = False
+                            st.rerun()
+                        else:
+                            st.error("Room not found!")
+                
+                with col2:
+                    if st.form_submit_button("Cancel", use_container_width=True):
+                        st.session_state.show_join_form = False
+                        st.rerun()
+    
+    else:
+        # In a room - show room info and leave option
+        room = room_manager.get_room(st.session_state.room_code)
+        
+        if room:
+            st.sidebar.success(f"🏠 **Room:** `{st.session_state.room_code}`")
+            st.sidebar.caption(f"👥 {room.participant_count} participant(s)")
+            st.sidebar.caption(f"🕐 Updated: {room.last_updated.strftime('%H:%M:%S')}")
+            
+            col1, col2 = st.sidebar.columns(2)
+            
+            with col1:
+                if st.button("🔄 Update", use_container_width=True, help="Refresh room state"):
+                    room = room_manager.get_room(st.session_state.room_code)
+                    if room:
+                        st.session_state.available_options = room.available_options.copy()
+                        st.rerun()
+            
+            with col2:
+                if st.button("🚪 Leave", use_container_width=True, help="Leave room"):
+                    st.session_state.room_code = None
+                    st.rerun()
+        else:
+            st.sidebar.error("Room no longer exists!")
+            st.session_state.room_code = None
+            st.rerun()
+    
+    st.sidebar.divider()
     
     # Sidebar for option management
     st.sidebar.header("📝 Manage Options")
@@ -103,6 +180,12 @@ def main():
         if submitted and new_option.strip():
             if new_option.strip() not in st.session_state.available_options:
                 st.session_state.available_options.append(new_option.strip())
+                # Sync with room if in one
+                if st.session_state.room_code:
+                    room_manager.update_room_options(
+                        st.session_state.room_code,
+                        st.session_state.available_options
+                    )
                 st.rerun()
             else:
                 st.warning("Option already exists!")
@@ -114,6 +197,12 @@ def main():
         col1.write(f"{i+1}. {option}")
         if col2.button("🗑️", key=f"delete_{i}", help=f"Delete {option}"):
             st.session_state.available_options.remove(option)
+            # Sync with room if in one
+            if st.session_state.room_code:
+                room_manager.update_room_options(
+                    st.session_state.room_code,
+                    st.session_state.available_options
+                )
             st.rerun()
     
     # Main voting interface
@@ -143,6 +232,13 @@ def main():
     if not selected_positions:
         st.info("👆 Select at least one option above to continue")
         return
+    
+    # Sync positions with room if in one
+    if st.session_state.room_code:
+        room_manager.update_room_positions(
+            st.session_state.room_code,
+            selected_positions
+        )
     
     st.divider()
     
