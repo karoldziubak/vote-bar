@@ -1,0 +1,78 @@
+# Docker Compose configuration for vote-bar development
+# Provides live reload, port mapping, and development-friendly setup
+
+services:
+  # Main vote-bar application
+  vote-bar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development  # Use development stage with dev dependencies
+    container_name: vote-bar-dev
+    ports:
+      - "8501:8501"  # Streamlit default port
+    volumes:
+      # Mount source code for live reload during development
+      - .:/app:cached
+      # Exclude virtual environment and cache directories
+      - /app/.venv
+      - /app/.pytest_cache
+      - /app/__pycache__
+      - /app/htmlcov
+    environment:
+      # Development environment variables
+      - PYTHONPATH=/app
+      # Enable Streamlit file watcher for hot reload
+      - STREAMLIT_SERVER_RUNONSAVE=true
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_BROWSER_GATHERSTATS=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Testing service for running tests in container
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: vote-bar-test
+    volumes:
+      - .:/app:cached
+      - /app/.venv
+    command: ["uv", "run", "pytest", "-v", "--cov=logic"]
+    profiles:
+      - testing  # Only start when explicitly requested
+
+  # Optional: Code quality service
+  lint:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: vote-bar-lint
+    volumes:
+      - .:/app:cached
+      - /app/.venv
+    command: >
+      sh -c "uv run black --check . &&
+             uv run isort --check-only . &&
+             uv run flake8 . &&
+             uv run mypy logic/ app.py"
+    profiles:
+      - quality  # Only start when explicitly requested
+
+# Networks (optional, for future microservices)
+networks:
+  default:
+    name: vote-bar-network
+    driver: bridge
+
+# Volumes for data persistence (if needed in future)
+volumes:
+  vote_data:
+    driver: local
