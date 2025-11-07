@@ -140,6 +140,8 @@ omit = [
     "*/migrations/*",
     "venv/*",
     ".venv/*",
+    "*_old.py",
+    "*_backup.py",
 ]
 
 [tool.coverage.report]

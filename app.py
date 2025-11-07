@@ -7,13 +7,12 @@ Each option's share is determined by 1D Voronoi diagram logic
 """
 
 import streamlit as st
-import pandas as pd
 import plotly.graph_objects as go
 from logic.vote_logic import VoteResult
 
 
 def create_results_bar_chart(vote_result: VoteResult) -> go.Figure:
-    """Create a horizontal stacked bar chart showing vote shares."""
+    """Create a horizontal stacked bar chart showing vote shares with position markers."""
     if not vote_result.shares:
         return go.Figure()
     
@@ -42,14 +41,34 @@ def create_results_bar_chart(vote_result: VoteResult) -> go.Figure:
         
         cumulative_width += share
     
+    # Add position markers as scatter points
+    for i, (option, position, share) in enumerate(sorted_results):
+        color = colors[i % len(colors)]
+        fig.add_trace(go.Scatter(
+            x=[position],
+            y=['Vote Distribution'],
+            mode='markers',
+            marker=dict(
+                size=12,
+                color='white',
+                line=dict(color=color, width=3),
+                symbol='circle'
+            ),
+            text=f"{option}: {position:.1f}",
+            textposition="top center",
+            showlegend=False,
+            hovertemplate=f"<b>{option}</b><br>Position: {position:.1f}<br>Share: {share:.1f}%<extra></extra>"
+        ))
+    
     fig.update_layout(
         barmode='stack',
-        xaxis_title="Percentage",
-        yaxis_title="",
-        height=150,
+        xaxis_title="Position (0-100)",
+        yaxis=dict(visible=False),
+        height=120,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(t=20, b=20, l=20, r=20)
+        margin=dict(t=40, b=20, l=5, r=20),
+        xaxis=dict(range=[0, 100])
     )
     
     return fig
@@ -76,15 +95,17 @@ def main():
     # Sidebar for option management
     st.sidebar.header("📝 Manage Options")
     
-    # Add new option
-    new_option = st.sidebar.text_input("Add new option:")
-    if st.sidebar.button("➕ Add Option") and new_option.strip():
-        if new_option.strip() not in st.session_state.available_options:
-            st.session_state.available_options.append(new_option.strip())
-            st.sidebar.success(f"Added: {new_option.strip()}")
-            st.rerun()
-        else:
-            st.sidebar.warning("Option already exists!")
+    # Add new option with form (allows Enter key to submit)
+    with st.sidebar.form("add_option_form", clear_on_submit=True):
+        new_option = st.text_input("Add new option:")
+        submitted = st.form_submit_button("➕ Add Option")
+        
+        if submitted and new_option.strip():
+            if new_option.strip() not in st.session_state.available_options:
+                st.session_state.available_options.append(new_option.strip())
+                st.rerun()
+            else:
+                st.warning("Option already exists!")
     
     # Display current options
     st.sidebar.subheader("Current Options:")
@@ -102,76 +123,53 @@ def main():
         st.warning("Please add some options in the sidebar first!")
         return
     
-    # Option selection and position assignment
-    selected_positions = {}
+    # SECTION 1: Option Selection (Checkboxes)
+    st.subheader("1. Select Options")
     
-    # Collect selected positions first
+    # Display checkboxes in columns
+    checkbox_cols = st.columns(4)
+    for i, option in enumerate(st.session_state.available_options):
+        col = checkbox_cols[i % 4]
+        with col:
+            st.checkbox(f"**{option}**", key=f"select_{option}")
+    
+    # Collect selected options and their positions
+    selected_positions = {}
     for option in st.session_state.available_options:
         if st.session_state.get(f"select_{option}", False):
             position = st.session_state.get(f"pos_{option}", 50.0)
             selected_positions[option] = position
     
-    # Live visualization - compact, above controls
-    if selected_positions:
-        # Compute vote shares in real-time
-        vote_result = VoteResult(selected_positions)
-        
-        # Compact live visualization
-        chart = create_results_bar_chart(vote_result)
-        st.plotly_chart(chart, use_container_width=True)
-        
-        # Show current shares as compact metrics
-        sorted_results = vote_result.get_sorted_results()
-        if len(sorted_results) <= 4:
-            # Show as metrics if 4 or fewer options
-            metric_cols = st.columns(len(sorted_results))
-            for i, (option, position, share) in enumerate(sorted_results):
-                metric_cols[i].metric(
-                    label=option,
-                    value=f"{share:.1f}%",
-                    delta=f"pos: {position:.1f}"
-                )
-        else:
-            # Show as compact table if more than 4 options
-            results_df = pd.DataFrame([
-                {
-                    'Option': option,
-                    'Position': f"{position:.1f}",
-                    'Share': f"{share:.1f}%"
-                }
-                for option, position, share in sorted_results
-            ])
-            st.dataframe(results_df, hide_index=True, use_container_width=True)
-        
-        st.divider()
-    
-    st.subheader("Select options and assign positions:")
-    
-    # Create columns for better layout
-    cols = st.columns(2)
-    
-    for i, option in enumerate(st.session_state.available_options):
-        col = cols[i % 2]
-        
-        with col:
-            # Checkbox to select option
-            selected = st.checkbox(f"Include **{option}**", key=f"select_{option}")
-            
-            if selected:
-                # Position slider (only shown when option is selected)
-                position = st.slider(
-                    f"Position for {option}:",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=50.0,
-                    step=0.1,
-                    key=f"pos_{option}",
-                    help=f"Set position for {option} on the 0-100 bar"
-                )
-                st.caption(f"📍 {option} positioned at {position:.1f}")
-    
     if not selected_positions:
-        st.info("👆 Select at least one option above to start voting!")
+        st.info("👆 Select at least one option above to continue")
+        return
+    
+    st.divider()
+    
+    # SECTION 2: Live Distribution Visualization
+    st.subheader("2. Distribution Preview")
+    
+    # Compute vote shares in real-time
+    vote_result = VoteResult(selected_positions)
+    chart = create_results_bar_chart(vote_result)
+    st.plotly_chart(chart, use_container_width=True)
+    
+    st.divider()
+    
+    # SECTION 3: Position Adjustment (Compact sliders in single column)
+    st.subheader("3. Adjust Positions")
+    
+    for option in st.session_state.available_options:
+        if st.session_state.get(f"select_{option}", False):
+            position = st.slider(
+                f"{option}:",
+                min_value=0.0,
+                max_value=100.0,
+                value=50.0,
+                step=0.1,
+                key=f"pos_{option}",
+                help=f"Set position for {option} on the 0-100 bar"
+            )
     
     # FAQ Section at the bottom
     st.divider()

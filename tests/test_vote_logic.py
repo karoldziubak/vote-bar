@@ -1,213 +1,107 @@
 """
-Unit tests for the vote-bar logic.
+Unit tests for the simplified vote-bar logic.
 """
 
-import pandas as pd
-from logic.vote_logic import VoteBar, PositionVote
+import pytest
+from logic.vote_logic import compute_vote_shares, VoteResult
 
 
-class TestPositionVote:
-    """Test cases for the PositionVote class."""
+class TestComputeVoteShares:
+    """Test cases for the compute_vote_shares function."""
     
-    def test_position_vote_init(self):
-        """Test PositionVote initialization."""
-        positions = {"A": (0.0, 50.0), "B": (50.0, 100.0)}
-        vote = PositionVote(positions)
-        
-        assert vote.option_positions == positions
-        assert vote.percentages["A"] == 50.0
-        assert vote.percentages["B"] == 50.0
+    def test_empty_positions(self):
+        """Test with no positions."""
+        result = compute_vote_shares({})
+        assert result == {}
     
-    def test_position_vote_calculate_percentages(self):
-        """Test percentage calculation from positions."""
-        positions = {"A": (10.0, 60.0), "B": (70.0, 90.0)}
-        vote = PositionVote(positions)
+    def test_single_option(self):
+        """Test with single option gets 100%."""
+        result = compute_vote_shares({"A": 50.0})
+        assert result == {"A": 100.0}
         
-        assert vote.percentages["A"] == 50.0  # 60 - 10
-        assert vote.percentages["B"] == 20.0  # 90 - 70
+        # Position doesn't matter for single option
+        result = compute_vote_shares({"A": 25.0})
+        assert result == {"A": 100.0}
+    
+    def test_two_options_equal_split(self):
+        """Test two options with equal split."""
+        result = compute_vote_shares({"A": 30.0, "B": 70.0})
+        assert result == {"A": 50.0, "B": 50.0}
+    
+    def test_two_options_unequal_positions(self):
+        """Test two options with different spacing."""
+        result = compute_vote_shares({"A": 10.0, "B": 90.0})
+        assert result == {"A": 50.0, "B": 50.0}  # Always 50/50 for two options
+    
+    def test_three_options_even_spacing(self):
+        """Test three options with even spacing."""
+        result = compute_vote_shares({"A": 20.0, "B": 50.0, "C": 80.0})
+        expected = {"A": 35.0, "B": 30.0, "C": 35.0}
+        assert result == expected
+    
+    def test_three_options_uneven_spacing(self):
+        """Test three options with uneven spacing."""
+        result = compute_vote_shares({"A": 10.0, "B": 20.0, "C": 90.0})
+        # Midpoints: 15 (between A and B), 55 (between B and C)
+        # A: 0-15 = 15%, B: 15-55 = 40%, C: 55-100 = 45%
+        expected = {"A": 15.0, "B": 40.0, "C": 45.0}
+        assert result == expected
+    
+    def test_options_order_independence(self):
+        """Test that order of input doesn't matter."""
+        positions1 = {"A": 20.0, "B": 50.0, "C": 80.0}
+        positions2 = {"C": 80.0, "A": 20.0, "B": 50.0}
+        
+        result1 = compute_vote_shares(positions1)
+        result2 = compute_vote_shares(positions2)
+        
+        assert result1 == result2
+    
+    def test_extreme_positions(self):
+        """Test with positions at boundaries."""
+        result = compute_vote_shares({"A": 0.0, "B": 100.0})
+        assert result == {"A": 50.0, "B": 50.0}
+    
+    def test_close_positions(self):
+        """Test with very close positions."""
+        result = compute_vote_shares({"A": 49.9, "B": 50.0, "C": 50.1})
+        # Midpoints: 49.95, 50.05
+        # A: 0-49.95 = 49.95%, B: 49.95-50.05 = 0.1%, C: 50.05-100 = 49.95%
+        assert abs(result["A"] - 49.95) < 0.001
+        assert abs(result["B"] - 0.1) < 0.001
+        assert abs(result["C"] - 49.95) < 0.001
 
 
-class TestVoteBar:
-    """Test cases for the VoteBar class."""
+class TestVoteResult:
+    """Test cases for the VoteResult class."""
     
-    def test_init(self):
-        """Test VoteBar initialization."""
-        options = ["Option A", "Option B", "Option C"]
-        vote_bar = VoteBar(options)
+    def test_vote_result_init(self):
+        """Test VoteResult initialization."""
+        positions = {"A": 30.0, "B": 70.0}
+        result = VoteResult(positions)
         
-        assert vote_bar.options == options
-        assert vote_bar.votes == []
+        assert result.positions == positions
+        assert result.shares == {"A": 50.0, "B": 50.0}
+        assert result.total_options == 2
     
-    def test_add_valid_vote(self):
-        """Test adding a valid vote."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        vote = {"A": 50.0, "B": 30.0, "C": 20.0}
+    def test_get_sorted_results(self):
+        """Test getting sorted results."""
+        positions = {"C": 80.0, "A": 20.0, "B": 50.0}
+        result = VoteResult(positions)
         
-        result = vote_bar.add_vote(vote)
+        sorted_results = result.get_sorted_results()
         
-        assert result is True
-        assert len(vote_bar.votes) == 1
-        assert isinstance(vote_bar.votes[0], PositionVote)
-        # Check that percentages are calculated correctly
-        assert vote_bar.votes[0].percentages["A"] == 50.0
-        assert vote_bar.votes[0].percentages["B"] == 30.0
-        assert vote_bar.votes[0].percentages["C"] == 20.0
-    
-    def test_add_invalid_vote_wrong_total(self):
-        """Test adding a vote that doesn't sum to 100%."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        vote = {"A": 50.0, "B": 30.0, "C": 15.0}  # Sums to 95%
+        # Should be sorted by position
+        assert len(sorted_results) == 3
+        assert sorted_results[0][0] == "A"  # position 20.0
+        assert sorted_results[1][0] == "B"  # position 50.0
+        assert sorted_results[2][0] == "C"  # position 80.0
         
-        result = vote_bar.add_vote(vote)
-        
-        assert result is False
-        assert len(vote_bar.votes) == 0
-    
-    def test_add_invalid_vote_negative_value(self):
-        """Test adding a vote with negative percentages."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        vote = {"A": 110.0, "B": -10.0, "C": 0.0}  # Negative value
-        
-        result = vote_bar.add_vote(vote)
-        
-        assert result is False
-        assert len(vote_bar.votes) == 0
-    
-    def test_add_invalid_vote_unknown_option(self):
-        """Test adding a vote with unknown options."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        vote = {"A": 50.0, "D": 50.0}  # "D" is not a valid option
-        
-        result = vote_bar.add_vote(vote)
-        
-        assert result is False
-        assert len(vote_bar.votes) == 0
-    
-    def test_get_results_empty(self):
-        """Test getting results when no votes have been cast."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        
-        results = vote_bar.get_results()
-        
-        assert isinstance(results, pd.DataFrame)
-        assert len(results) == 0
-        assert list(results.columns) == ['option', 'average_score', 'total_votes']
-    
-    def test_get_results_with_votes(self):
-        """Test getting results with multiple votes."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        
-        # Add some test votes
-        vote_bar.add_vote({"A": 60.0, "B": 40.0, "C": 0.0})
-        vote_bar.add_vote({"A": 40.0, "B": 20.0, "C": 40.0})
-        vote_bar.add_vote({"A": 0.0, "B": 50.0, "C": 50.0})
-        
-        results = vote_bar.get_results()
-        
-        assert len(results) == 3
-        assert results.iloc[0]['option'] == 'B'  # Highest average (36.67%)
-        assert abs(results.iloc[0]['average_score'] - 36.67) < 0.01
-        
-    def test_partial_votes(self):
-        """Test that votes can include only some options (others default to 0)."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        vote = {"A": 100.0}  # Only vote for A
-        
-        result = vote_bar.add_vote(vote)
-        results = vote_bar.get_results()
-        
-        assert result is True
-        assert results.loc[results['option'] == 'A', 'average_score'].iloc[0] == 100.0
-        assert results.loc[results['option'] == 'B', 'average_score'].iloc[0] == 0.0
-        assert results.loc[results['option'] == 'C', 'average_score'].iloc[0] == 0.0
-    
-    def test_add_position_vote_valid(self):
-        """Test adding a valid position-based vote."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        positions = {"A": (0.0, 50.0), "B": (60.0, 100.0)}
-        
-        result = vote_bar.add_position_vote(positions)
-        
-        assert result is True
-        assert len(vote_bar.votes) == 1
-        assert isinstance(vote_bar.votes[0], PositionVote)
-    
-    def test_add_position_vote_overlapping(self):
-        """Test adding position vote with overlapping ranges."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        positions = {"A": (0.0, 50.0), "B": (40.0, 80.0)}  # Overlapping
-        
-        result = vote_bar.add_position_vote(positions)
-        
-        assert result is False
-        assert len(vote_bar.votes) == 0
-    
-    def test_add_position_vote_invalid_range(self):
-        """Test adding position vote with invalid ranges."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        positions = {"A": (-10.0, 50.0), "B": (60.0, 110.0)}  # Out of 0-100 range
-        
-        result = vote_bar.add_position_vote(positions)
-        
-        assert result is False
-        assert len(vote_bar.votes) == 0
-    
-    def test_add_position_vote_unknown_option(self):
-        """Test adding position vote with unknown option."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        positions = {"A": (0.0, 50.0), "D": (60.0, 80.0)}  # "D" is unknown
-        
-        result = vote_bar.add_position_vote(positions)
-        
-        assert result is False
-        assert len(vote_bar.votes) == 0
-    
-    def test_get_results_with_position_votes(self):
-        """Test getting results with position-based votes."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        
-        # Add position votes
-        vote_bar.add_position_vote({"A": (0.0, 60.0), "B": (60.0, 100.0)})  # A=60%, B=40%
-        vote_bar.add_position_vote({"A": (0.0, 30.0), "C": (30.0, 100.0)})  # A=30%, C=70%
-        
-        results = vote_bar.get_results()
-        
-        assert len(results) == 3
-        # A: average = (60 + 30) / 2 = 45%
-        assert abs(results.loc[results['option'] == 'A', 'average_score'].iloc[0] - 45.0) < 0.01
-        # B: average = (40 + 0) / 2 = 20%
-        assert abs(results.loc[results['option'] == 'B', 'average_score'].iloc[0] - 20.0) < 0.01
-        # C: average = (0 + 70) / 2 = 35%
-        assert abs(results.loc[results['option'] == 'C', 'average_score'].iloc[0] - 35.0) < 0.01
-    
-    def test_get_position_summary(self):
-        """Test getting position summary."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        
-        vote_bar.add_position_vote({"A": (0.0, 50.0), "B": (50.0, 100.0)})
-        vote_bar.add_position_vote({"A": (10.0, 40.0), "C": (60.0, 90.0)})
-        
-        summary = vote_bar.get_position_summary()
-        
-        assert len(summary["A"]) == 2
-        assert summary["A"] == [(0.0, 50.0), (10.0, 40.0)]
-        assert len(summary["B"]) == 1
-        assert summary["B"] == [(50.0, 100.0)]
-        assert len(summary["C"]) == 1
-        assert summary["C"] == [(60.0, 90.0)]
-    
-    def test_mixed_vote_types(self):
-        """Test handling both traditional and position-based votes."""
-        vote_bar = VoteBar(["A", "B", "C"])
-        
-        # Add traditional vote
-        vote_bar.add_vote({"A": 50.0, "B": 50.0})
-        
-        # Add position vote
-        vote_bar.add_position_vote({"A": (0.0, 30.0), "C": (30.0, 100.0)})
-        
-        results = vote_bar.get_results()
-        
-        assert len(results) == 3
-        # Should handle both vote types correctly
-        assert len(vote_bar.votes) == 2
+        # Check shares are correct
+        assert sorted_results[0][2] == 35.0  # A's share
+        assert sorted_results[1][2] == 30.0  # B's share
+        assert sorted_results[2][2] == 35.0  # C's share
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
