@@ -2,6 +2,52 @@
 
 Experimental voting system using a drag-and-drop bar interface to express preferences and rankings. Built with Python, Streamlit, Docker, and uv. Designed for flexible preferences testing and open-source research on collective decision-making.
 
+## 🎯 How It Works
+
+Vote-bar implements an experimental "100% bar" voting concept with **drag-and-drop positioning**:
+
+### Core Concept
+Instead of traditional voting or even percentage sliders, users **position option icons directly on a visual bar**. The position and width of each option on the bar represents its share of the vote.
+
+### Key Features
+
+1. **🎯 Position-Based Voting** - Place options anywhere on a 100% bar using intuitive sliders
+2. **📏 Visual Allocation** - The space each option occupies represents its percentage
+3. **❌ Zero for Unused** - Options not placed on the bar automatically receive 0%
+4. **🚫 No Overlaps** - Smart validation prevents conflicting positions
+5. **👁️ Real-time Preview** - See your exact bar configuration as you build it
+6. **📊 Live Results** - Aggregated results from all submitted position votes
+7. **🔄 Backwards Compatible** - Still supports traditional percentage-based votes
+
+### Example Voting Scenarios
+
+- **Full Allocation**: Position 3 options covering the entire 100% bar
+- **Partial Voting**: Only position your top 2 choices, leaving others at 0%
+- **Unequal Weighting**: Give your favorite 60%, second choice 25%, third choice 15%
+- **Binary Choice**: Position one option for 100%, ignore all others
+
+## 🧪 Project Structure
+
+```
+vote-bar/
+├── app.py                    # Main drag-and-drop Streamlit application
+├── app_slider.py            # Original slider-based app (backup)
+├── logic/                    # Core business logic
+│   ├── __init__.py          
+│   └── vote_logic.py        # VoteBar and PositionVote classes
+├── tests/                    # Unit tests (17 tests, 99% coverage)
+│   └── test_vote_logic.py   # Comprehensive test suite
+├── data/                     # Data files (empty initially)
+├── scripts/                  # Development helper scripts
+│   ├── dev.py               # Local development commands
+│   └── docker.py            # Docker development commands
+├── pyproject.toml           # Project dependencies and configuration
+├── Dockerfile               # Multi-stage Docker build
+├── docker-compose.yml       # Development environment setup
+└── README.md               # This file
+```
+
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -101,51 +147,6 @@ uv run python scripts/dev.py format
 
 # Lint code
 uv run python scripts/dev.py lint
-```
-
-## 🎯 How It Works
-
-Vote-bar implements an experimental "100% bar" voting concept with **drag-and-drop positioning**:
-
-### Core Concept
-Instead of traditional voting or even percentage sliders, users **position option icons directly on a visual bar**. The position and width of each option on the bar represents its share of the vote.
-
-### Key Features
-
-1. **🎯 Position-Based Voting** - Place options anywhere on a 100% bar using intuitive sliders
-2. **📏 Visual Allocation** - The space each option occupies represents its percentage
-3. **❌ Zero for Unused** - Options not placed on the bar automatically receive 0%
-4. **🚫 No Overlaps** - Smart validation prevents conflicting positions
-5. **👁️ Real-time Preview** - See your exact bar configuration as you build it
-6. **📊 Live Results** - Aggregated results from all submitted position votes
-7. **🔄 Backwards Compatible** - Still supports traditional percentage-based votes
-
-### Example Voting Scenarios
-
-- **Full Allocation**: Position 3 options covering the entire 100% bar
-- **Partial Voting**: Only position your top 2 choices, leaving others at 0%
-- **Unequal Weighting**: Give your favorite 60%, second choice 25%, third choice 15%
-- **Binary Choice**: Position one option for 100%, ignore all others
-
-## 🧪 Project Structure
-
-```
-vote-bar/
-├── app.py                    # Main drag-and-drop Streamlit application
-├── app_slider.py            # Original slider-based app (backup)
-├── logic/                    # Core business logic
-│   ├── __init__.py          
-│   └── vote_logic.py        # VoteBar and PositionVote classes
-├── tests/                    # Unit tests (17 tests, 99% coverage)
-│   └── test_vote_logic.py   # Comprehensive test suite
-├── data/                     # Data files (empty initially)
-├── scripts/                  # Development helper scripts
-│   ├── dev.py               # Local development commands
-│   └── docker.py            # Docker development commands
-├── pyproject.toml           # Project dependencies and configuration
-├── Dockerfile               # Multi-stage Docker build
-├── docker-compose.yml       # Development environment setup
-└── README.md               # This file
 ```
 
 ## 🐳 Docker Configuration
